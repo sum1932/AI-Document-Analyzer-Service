@@ -14,4 +14,6 @@ COPY . .
 
 RUN cd frontend && npm install && npm run build
 
-CMD ["sh", "-c", "cd backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+WORKDIR /app/backend
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
