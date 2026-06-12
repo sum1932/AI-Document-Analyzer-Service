@@ -1,5 +1,6 @@
 from typing import List
 from pathlib import Path
+from pydantic import BaseModel
 import requests
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
@@ -9,9 +10,6 @@ from openpyxl import load_workbook
 class DocumentChunk(BaseModel):
     content: str
     metadata: dict
-
-
-from pydantic import BaseModel
 
 
 class DocumentChunk(BaseModel):
