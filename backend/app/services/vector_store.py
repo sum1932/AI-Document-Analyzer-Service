@@ -1,58 +1,70 @@
-import chromadb
-from typing import List, Optional
+from pinecone import Pinecone, ServerlessSpec
+from typing import List
 from app.core.config import settings
 
+pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 
-client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
 
-
-def get_or_create_collection(name: str):
-    return client.get_or_create_collection(
-        name=name,
-        metadata={"hnsw:space": "cosine"}
-    )
+def get_or_create_index():
+    existing = [idx.name for idx in pc.list_indexes()]
+    if settings.PINECONE_INDEX_NAME not in existing:
+        pc.create_index(
+            name=settings.PINECONE_INDEX_NAME,
+            dimension=768,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        )
+    return pc.Index(settings.PINECONE_INDEX_NAME)
 
 
 def add_documents(collection_name: str, chunks: List[dict], embeddings: List[List[float]]):
-    collection = get_or_create_collection(collection_name)
-    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
-    documents = [c["content"] for c in chunks]
-    metadatas = [c["metadata"] for c in chunks]
-
-    collection.add(
-        ids=ids,
-        embeddings=embeddings,
-        documents=documents,
-        metadatas=metadatas
-    )
-    return len(ids)
+    index = get_or_create_index()
+    vectors = []
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        vectors.append({
+            "id": f"{collection_name}_{i}",
+            "values": embedding,
+            "metadata": {"content": chunk["content"], **chunk["metadata"], "collection": collection_name}
+        })
+    index.upsert(vectors=vectors)
+    return len(vectors)
 
 
 def search_similar(collection_name: str, query_embedding: List[float], top_k: int = 5) -> List[dict]:
-    collection = get_or_create_collection(collection_name)
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k
+    index = get_or_create_index()
+    results = index.query(
+        vector=query_embedding,
+        top_k=top_k,
+        include_metadata=True,
+        filter={"collection": {"$eq": collection_name}}
     )
     result_list = []
-    for i in range(len(results["ids"][0])):
+    for match in results.matches:
         result_list.append({
-            "id": results["ids"][0][i],
-            "content": results["documents"][0][i],
-            "metadata": results["metadatas"][0][i],
-            "distance": results["distances"][0][i] if results["distances"] else None
+            "id": match.id,
+            "content": match.metadata.get("content", ""),
+            "metadata": {k: v for k, v in match.metadata.items() if k != "content"},
+            "distance": match.score
         })
     return result_list
 
 
 def list_collections() -> List[str]:
-    return [c.name for c in client.list_collections()]
+    index = get_or_create_index()
+    stats = index.describe_index_stats()
+    collections = set()
+    for vector_id in stats.get("namespaces", {}).keys():
+        collections.add(vector_id)
+    return list(collections) if collections else ["default"]
 
 
 def delete_collection(name: str):
-    client.delete_collection(name)
+    index = get_or_create_index()
+    index.delete(delete_all=True, namespace=name)
 
 
 def get_collection_stats(name: str) -> dict:
-    collection = get_or_create_collection(name)
-    return {"count": collection.count()}
+    index = get_or_create_index()
+    stats = index.describe_index_stats()
+    count = stats.get("namespaces", {}).get(name, {}).get("vector_count", 0)
+    return {"count": count}

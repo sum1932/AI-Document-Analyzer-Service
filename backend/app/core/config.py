@@ -1,10 +1,10 @@
 from pydantic_settings import BaseSettings
-from pathlib import Path
 
 
 class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
-    CHROMA_PERSIST_DIR: str = str(Path(__file__).parent.parent.parent / "data" / "chroma")
+    PINECONE_API_KEY: str = ""
+    PINECONE_INDEX_NAME: str = "document-qa"
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
     TOP_K_RESULTS: int = 5
